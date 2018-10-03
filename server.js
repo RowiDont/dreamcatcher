@@ -47,8 +47,10 @@ function generateDownloadData(opts, nightmare, callback) {
 
   if(opts.hideScrollbars){
     dataGenerationChain = dataGenerationChain.evaluate(function () {
-      document.querySelector('body').style.overflow = 'hidden';
-    });
+      var s = document.styleSheets[0];
+      var css = "*::-webkit-scrollbar { width: 0px !important; background: transparent !important; }"
+      s.insertRule(css);
+    })
   }
 
   if(opts.waitOptions && opts.waitOptions.length > 0){
@@ -84,25 +86,30 @@ function prepareContentForDownload(opts, callback){
   }
 }
 
-function findElementSizeAndDownload (downloadOptions, nightmare, errorCallback, responseCallback) {
+function getDimensions(selector) {
+  var selectorEl = document.querySelector(selector)
+  var children = selectorEl.querySelectorAll("*")
+
+  var childWidths = Array.from(children).map(el => el.offsetWidth)
+  var width = Math.max(selectorEl.offsetWidth, ...childWidths)
+
+  return {
+    width: width,
+    height: selectorEl.offsetHeight,
+    boundingRect: {
+      top: selectorEl.getBoundingClientRect().top,
+      left: selectorEl.getBoundingClientRect().left,
+    },
+  };
+}
+
+function findElementSize(downloadOptions, nightmare) {
   var selector = downloadOptions.selector || "body";
-  nightmare
+
+  return nightmare
     .goto(downloadOptions.url, downloadOptions.headers)
     .wait(selector)
-    .evaluate(function (selector) {
-      document.querySelector('body').style.overflow = 'hidden';
-      return {
-        width: document.querySelector(selector).offsetWidth,
-        height: document.querySelector(selector).offsetHeight,
-        boundingRect: {
-          top: document.querySelector(selector).getBoundingClientRect().top,
-          left: document.querySelector(selector).getBoundingClientRect().left
-        }
-      };
-    }, selector)
-    .then(function (dimensions) {
-      generateDownloadData(_.extend(downloadOptions, dimensions), nightmare, responseCallback)
-    }, errorCallback)
+    .evaluate(getDimensions, selector)
 }
 
 function md5(string) {
@@ -189,7 +196,11 @@ function handlePng (req, res, queueCallback) {
     if (req.body.width && req.body.height) {
       generateDownloadData(downloadOptions, nightmare, responseCallback);
     } else {
-      findElementSizeAndDownload(downloadOptions, nightmare, errorCallback, responseCallback);
+      findElementSize(downloadOptions, nightmare)
+        .then(function(dimensions) {
+          var combinedOptions = _.extend(downloadOptions, dimensions)
+          generateDownloadData(combinedOptions, nightmare, responseCallback)
+        }, errorCallback)
     }
   });
 }
